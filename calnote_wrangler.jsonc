@@ -1,0 +1,55 @@
+{
+  // 行事曆／記事本系統（calnote，獨立新專案）的 Cloudflare Worker 設定範本。
+  // 程式碼跟 KV 資料庫都還是跟 SDA（日常小秘書）現有的 _worker.js 完全
+  // 分開、各自獨立：請建立全新的 GitHub repo + 全新的 Cloudflare Worker，
+  // 不要上傳到 SDA 現有的 repo。
+  //
+  // Phase 3 之後，calnote 不用再申請自己的LINE官方帳號了（下面有說明），
+  // 但這支 Worker 本身仍然是獨立部署的——這件事沒有變。
+  //
+  // "name" 請改成您想要的 Worker 名稱（會變成預設網址的一部分，
+  // 例如 calnote.your-subdomain.workers.dev；這個網址之後要填到
+  // SDA 那邊的 CALNOTE_WORKER_URL 環境變數裡，見下方說明）
+  "name": "calnote",
+  "main": "_worker.js",
+  "compatibility_date": "2026-11-21",
+
+  // 待辦清單 LINE 核心畫面用到的圖示（public/icons/ 底下那 10 張 PNG）要
+  // 靠這段設定才會真的被發布出去、在網路上看得到——跟 SDA「日常小秘書」
+  // 的 wrangler.jsonc 用的是完全同一招：沒有這段，/icons/xxx.png 一律
+  // 404，LINE 卡片上的圖示就會整個空白或顯示不出來。
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS"
+  },
+
+  // 請在 Cloudflare Dashboard 建立一個新的 KV Namespace（名稱可自訂，
+  // 例如 "calnote-kv"），建立後把它的 ID 填到下面的 "id" 欄位。
+  // 這個 KV 跟 SDA 用的 KV 完全分開，不會互相干擾。
+  "kv_namespaces": [
+    {
+      "binding": "CALNOTE_KV",
+      "id": "請填入您在Cloudflare建立的KV Namespace ID"
+    }
+  ]
+
+  // 下面這些環境變數請不要寫在這個檔案裡（避免金鑰外洩），改成在
+  // Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets
+  // 手動新增，跟您當初設定SDA的LINE金鑰時是一樣的操作方式。
+  //
+  // 【必填】Phase 3「同一個LINE帳號」模式（建議使用，不用另外申請LINE
+  //   官方帳號；calnote指令是透過SDA那支_worker.js轉送過來的）：
+  //     CALNOTE_INTERNAL_SECRET
+  //       自己取一組亂數字串（例如32個英數字），SDA那邊的環境變數也要
+  //       設定「一模一樣」的值，兩邊用這組密鑰互相確認身分、擋掉其他
+  //       來源的請求。跟任何LINE金鑰都不要共用同一個值。
+  //       同時記得在 SDA 那支 Worker 的環境變數加：
+  //         CALNOTE_WORKER_URL = 這支 calnote Worker 部署後的網址
+  //         CALNOTE_INTERNAL_SECRET = 跟這裡填的完全一樣
+  //
+  // 【選填，兩套模式可以同時存在】如果不想透過SDA轉送，想讓calnote自己
+  //   當一個完全獨立的LINE官方帳號（使用者要另外加這個好友）：
+  //     LINE_CHANNEL_SECRET       LINE Messaging API 的 Channel secret
+  //     LINE_CHANNEL_ACCESS_TOKEN LINE Messaging API 的 Channel access token
+  //     BOT_MENTION_NAME          群組中用來標記本機器人的文字，預設 "@機器人"
+}
