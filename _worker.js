@@ -613,7 +613,7 @@ async function handleTodoCommand(text, ctx) {
   let m;
 
   if (RE_TODO_MENU.test(text)) {
-    return flexMessage('待辦清單選單', todoMenuBubble(ctx));
+        return flexMessage('時光筆記選單', todoMenuBubble(ctx));
   }
 
   // 先比對更specific 的指令，避免被寬鬆的「待辦 ...」規則誤吃
@@ -638,7 +638,7 @@ async function handleTodoCommand(text, ctx) {
   }
 
   if (RE_TODO_QUERY_ALL.test(text)) {
-    return queryTodos(ctx, (t) => t.status !== '已完成', '待辦清單');
+    return queryTodos(ctx, (t) => t.status !== '已完成', '時光筆記');
   }
   if (RE_TODO_QUERY_TODAY.test(text)) {
     const p = nowTaipeiParts();
@@ -1228,8 +1228,7 @@ function todoMenuBubble(ctx) {
       type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', paddingAll: '12px',
       contents: [
         { type: 'image', url: iconUrl(ctx, 'todo_menu'), size: '22px', flex: 0, aspectMode: 'fit' },
-        { type: 'text', text: '待辦清單', weight: 'bold', size: 'lg', color: BRAND_TEXT },
-      ],
+        { type: 'text', text: '時光筆記', weight: 'bold', size: 'lg', color: BRAND_TEXT },      ],
     },
     body: {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
