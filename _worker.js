@@ -153,6 +153,15 @@ function quarterRangeMs(y, q) {
   return { startMs: start.startMs, endMs: end.endMs };
 }
 
+/** 這次新增：今年（1-12月，日曆年）在台灣時間下的起訖毫秒時間戳。
+ *  直接重用已經測過的 monthRangeMs，不另外手刻日期運算，降低時區誤差風險。 */
+function thisYearRangeMs() {
+  const p = nowTaipeiParts();
+  const start = monthRangeMs(p.y, 1);
+  const end = monthRangeMs(p.y, 12);
+  return { startMs: start.startMs, endMs: end.endMs };
+}
+
 /** 把 nowIsoTaipei() 固定格式（"YYYY-MM-DD HH:MM:SS+08:00"）的字串轉回毫秒時間戳。
  *  自己手動解析、不靠 Date 字串解析（不同引擎對非標準格式解讀不一致，這也是
  *  本檔案一開始所有時間函式都手刻、不直接用 new Date(...) 的同一個理由）。
@@ -316,9 +325,11 @@ const RE_EVT_QUERY_DAY = /^查詢行事曆\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_EVT_DIGEST_WEEK = /^行事曆週報$/;
 const RE_EVT_DIGEST_MONTH = /^行事曆月報$/;
 const RE_EVT_DIGEST_QUARTER = /^行事曆季報$/;
+const RE_EVT_DIGEST_YEAR = /^行事曆年報$/; // 這次新增
 
 /** 行事曆選單（核心進入點卡片，跟待辦選單同一套做法） */
 const RE_EVT_MENU = /^行事曆選單$/;
+const RE_EVT_QUERY_MENU = /^行事曆查詢選單$/; // 這次新增：比照待辦的查詢子選單套路
 
 /** #10 更新行程進度狀態 */
 const RE_EVT_SET_STATUS = /^行事曆\s*#(\d+)\s*改為\s*(.+)$/;
@@ -374,6 +385,9 @@ async function handleEventCommand(text, ctx) {
   if (RE_EVT_MENU.test(text)) {
     return flexMessage('行事曆選單', eventMenuBubble(ctx));
   }
+  if (RE_EVT_QUERY_MENU.test(text)) {
+    return flexMessage('行事曆查詢選單', eventQueryMenuBubble(ctx));
+  }
 
   if ((m = text.match(RE_EVT_CREATE))) {
     const [, y, mo, d, hh, mi, rest] = m;
@@ -421,6 +435,9 @@ async function handleEventCommand(text, ctx) {
   }
   if (RE_EVT_DIGEST_QUARTER.test(text)) {
     return eventDigest(ctx, thisQuarterRangeMs(), '行事曆季報');
+  }
+  if (RE_EVT_DIGEST_YEAR.test(text)) {
+    return eventDigest(ctx, thisYearRangeMs(), '行事曆年報');
   }
 
   if ((m = text.match(RE_EVT_SET_STATUS))) {
@@ -535,6 +552,7 @@ const RE_NOTE_EXPORT_PLAIN = /^輸出純文字記事\s*#(\d+)$/;
  *  排序規則跟其他模組查詢一致：置頂的在前，其餘依最後更新時間新到舊。 */
 const RE_NOTE_QUERY_ALL = /^查詢記事$/;
 const RE_NOTE_MENU = /^記事選單$/;
+const RE_NOTE_QUERY_MENU = /^記事查詢選單$/; // 這次新增：比照待辦的查詢子選單套路
 
 /** 這次新增：今日／指定日期／週報／月報／季報（AI先暫緩，純數字統計版）。
  *  記事沒有「明日」——記事只有 createdAt（建立時間），不像行事曆/待辦/倒數日
@@ -545,6 +563,7 @@ const RE_NOTE_QUERY_DAY = /^查詢記事\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_NOTE_DIGEST_WEEK = /^記事週報$/;
 const RE_NOTE_DIGEST_MONTH = /^記事月報$/;
 const RE_NOTE_DIGEST_QUARTER = /^記事季報$/;
+const RE_NOTE_DIGEST_YEAR = /^記事年報$/; // 這次新增
 
 function newNoteSkeleton(content) {
   const ts = nowIsoTaipei();
@@ -621,6 +640,9 @@ async function handleNoteCommand(text, ctx) {
   if (RE_NOTE_MENU.test(text)) {
     return flexMessage('記事選單', noteMenuBubble(ctx));
   }
+  if (RE_NOTE_QUERY_MENU.test(text)) {
+    return flexMessage('記事查詢選單', noteQueryMenuBubble(ctx));
+  }
   if (RE_NOTE_QUERY_ALL.test(text)) {
     return queryNotes(ctx);
   }
@@ -639,6 +661,9 @@ async function handleNoteCommand(text, ctx) {
   }
   if (RE_NOTE_DIGEST_QUARTER.test(text)) {
     return noteDigest(ctx, thisQuarterRangeMs(), '記事季報');
+  }
+  if (RE_NOTE_DIGEST_YEAR.test(text)) {
+    return noteDigest(ctx, thisYearRangeMs(), '記事年報');
   }
 
   // 先比對更specific 的指令，避免被寬鬆的「記事 ...」規則誤吃
@@ -725,6 +750,7 @@ const RE_TODO_CREATE_DATE = /^待辦\s+(\d{4})-(\d{2})-(\d{2})\s+(.+)$/s;
 const RE_TODO_CREATE_BARE = /^待辦\s+(.+)$/s;
 
 const RE_TODO_MENU = /^待辦選單$/;
+const RE_TODO_QUERY_MENU = /^待辦查詢選單$/; // 這次新增：待辦選單底下「查詢」按鈕展開的子選單
 const RE_TODO_QUERY_ALL = /^查詢待辦$/;
 const RE_TODO_QUERY_TODAY = /^今天該做的待辦$/;
 const RE_TODO_QUERY_OVERDUE = /^已逾期待辦$/;
@@ -743,6 +769,7 @@ const RE_TODO_QUERY_DAY = /^查詢待辦\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_TODO_DIGEST_WEEK = /^待辦週報$/;
 const RE_TODO_DIGEST_MONTH = /^待辦月報$/;
 const RE_TODO_DIGEST_QUARTER = /^待辦季報$/;
+const RE_TODO_DIGEST_YEAR = /^待辦年報$/; // 這次新增
 
 const RE_TODO_COMPLETE = /^完成待辦\s*#(\d+)$/;
 const RE_TODO_SET_STATUS = /^待辦\s*#(\d+)\s*改[為回]\s*(.+)$/;
@@ -779,6 +806,9 @@ async function handleTodoCommand(text, ctx) {
 
   if (RE_TODO_MENU.test(text)) {
         return flexMessage('時光筆記選單', todoMenuBubble(ctx));
+  }
+  if (RE_TODO_QUERY_MENU.test(text)) {
+    return flexMessage('待辦查詢選單', todoQueryMenuBubble(ctx));
   }
 
   // 先比對更specific 的指令，避免被寬鬆的「待辦 ...」規則誤吃
@@ -845,6 +875,9 @@ async function handleTodoCommand(text, ctx) {
   }
   if (RE_TODO_DIGEST_QUARTER.test(text)) {
     return todoDigest(ctx, thisQuarterRangeMs(), '待辦季報');
+  }
+  if (RE_TODO_DIGEST_YEAR.test(text)) {
+    return todoDigest(ctx, thisYearRangeMs(), '待辦年報');
   }
 
   if ((m = text.match(RE_TODO_CREATE_DATETIME))) {
@@ -967,6 +1000,7 @@ async function convertTodoToEvent(ctx, todoId, y, mo, d, hh, mi) {
 const RE_CD_CREATE = /^(倒數日|紀念日)\s+(\d{4})-(\d{2})-(\d{2})\s+(.+)$/s;
 const RE_CD_QUERY = /^(查詢倒數日|我的倒數日清單)$/;
 const RE_CD_MENU = /^倒數日選單$/;
+const RE_CD_QUERY_MENU = /^倒數日查詢選單$/; // 這次新增：比照待辦的查詢子選單套路
 const RE_CD_SET_REPEAT = /^倒數日\s*#(\d+)\s*設為每年重複$/;
 const RE_CD_SET_TITLE = /^修改倒數日\s*#(\d+)\s*標題改為\s*(.+)$/s;
 const RE_CD_DELETE = /^刪除倒數日\s*#(\d+)$/;
@@ -984,6 +1018,7 @@ const RE_CD_QUERY_DAY = /^查詢倒數日\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_CD_DIGEST_WEEK = /^倒數日週報$/;
 const RE_CD_DIGEST_MONTH = /^倒數日月報$/;
 const RE_CD_DIGEST_QUARTER = /^倒數日季報$/;
+const RE_CD_DIGEST_YEAR = /^倒數日年報$/; // 這次新增
 
 function newCountdownSkeleton(title, y, m, d) {
   const ts = nowIsoTaipei();
@@ -1069,6 +1104,9 @@ async function handleCountdownCommand(text, ctx) {
   if (RE_CD_MENU.test(text)) {
     return flexMessage('倒數日選單', countdownMenuBubble(ctx));
   }
+  if (RE_CD_QUERY_MENU.test(text)) {
+    return flexMessage('倒數日查詢選單', countdownQueryMenuBubble(ctx));
+  }
 
   if ((m = text.match(RE_CD_SET_REPEAT))) {
     return updateCountdownField(ctx, +m[1], (cd) => { cd.repeatYearly = true; }, '已設定每年重複');
@@ -1109,6 +1147,9 @@ async function handleCountdownCommand(text, ctx) {
   }
   if (RE_CD_DIGEST_QUARTER.test(text)) {
     return countdownDigest(ctx, thisQuarterRangeMs(), '倒數日季報');
+  }
+  if (RE_CD_DIGEST_YEAR.test(text)) {
+    return countdownDigest(ctx, thisYearRangeMs(), '倒數日年報');
   }
   if ((m = text.match(RE_CD_CREATE))) {
     const [, , y, mo, d, title] = m;
@@ -1507,6 +1548,11 @@ function todoCarouselReply(ctx, rows, label) {
 }
 
 /** 待辦選單（核心進入點卡片）：五顆Icon按鈕，沿用SDA一致的視覺風格 */
+// 這次改版：原本5顆按鈕（新增/查詢/今天該做的/已逾期/高優先）全部擠在同一層，
+// 現在改成「紀錄／查詢／功能選單」3顆（參照使用者指定的另一個機器人的介面習慣），
+// 「查詢」點下去再展開成下面 todoQueryMenuBubble 那張子選單卡片——原本5顆按鈕
+// 的功能完全沒有被拿掉，只是「查詢待辦／今天該做的／已逾期／高優先」這4顆被
+// 移到子選單裡，並且額外補上週報/月報/季報/年報/指定日期/AI洞察/返回。
 function todoMenuBubble(ctx) {
   const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
   return {
@@ -1524,11 +1570,44 @@ function todoMenuBubble(ctx) {
         // 幫使用者把輸入框先打上「待辦 」再打開鍵盤，不用自己記格式；這顆按鈕本身的
         // postback data 刻意給一個 handlePostback 認不得、會安全忽略的值（不觸發任何動作），
         // 真正的新增動作是使用者自己把標題打完、按下送出之後才發生。
-        row('todo_add', '新增待辦', { type: 'postback', label: '新增待辦', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '待辦 ' }),
-        row('todo_query', '查詢待辦', msgTextAction('查詢待辦', '查詢待辦')),
-        row('todo_due', '今天該做的', msgTextAction('今天該做的待辦', '今天該做的待辦')),
+        row('todo_add', '紀錄', { type: 'postback', label: '紀錄', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '待辦 ' }),
+        row('todo_query', '查詢', msgTextAction('查詢', '待辦查詢選單')),
+        row('todo_menu', '功能選單', msgTextAction('功能選單', '時光筆記')),
+      ],
+    },
+  };
+}
+
+/** 這次新增：待辦「查詢」子選單——原本待辦選單裡的4顆查詢類按鈕都搬進來，
+ *  再加上週報/月報/季報/年報（沿用round1/round2已經做好、測過的指令）、
+ *  指定日期查詢（跟「紀錄」一樣用fillInText預填，使用者自己補日期）、
+ *  跟AI洞察（先放佔位，見 handleAiInsightCommand 的說明）。 */
+function todoQueryMenuBubble(ctx) {
+  const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
+  return {
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', paddingAll: '12px',
+      contents: [
+        { type: 'image', url: iconUrl(ctx, 'todo_query'), size: '22px', flex: 0, aspectMode: 'fit' },
+        { type: 'text', text: '待辦查詢', weight: 'bold', size: 'lg', color: BRAND_TEXT },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
+      contents: [
+        row('todo_query', '全部', msgTextAction('全部待辦', '查詢待辦')),
+        row('todo_due', '今日', msgTextAction('今日待辦', '今日待辦')),
+        row('todo_due', '明日', msgTextAction('明日待辦', '明日待辦')),
+        row('todo_query', '週報', msgTextAction('待辦週報', '待辦週報')),
+        row('todo_query', '月報', msgTextAction('待辦月報', '待辦月報')),
+        row('todo_query', '季報', msgTextAction('待辦季報', '待辦季報')),
+        row('todo_query', '年報', msgTextAction('待辦年報', '待辦年報')),
+        row('todo_priority', '指定日期', { type: 'postback', label: '指定日期', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '查詢待辦 ' }),
         row('todo_overdue', '已逾期', msgTextAction('已逾期待辦', '已逾期待辦')),
         row('todo_priority', '高優先', msgTextAction('高優先待辦', '高優先待辦')),
+        row('todo_priority', '🤖 AI洞察', msgTextAction('AI洞察', 'AI洞察')),
+        row('todo_menu', '返回', msgTextAction('返回', '待辦選單')),
       ],
     },
   };
@@ -1554,7 +1633,9 @@ function todoMenuBubble(ctx) {
 //    改掉日期數字就能用，不用自己記10種語法。
 // ---------------------------------------------------------------
 
-/** 行事曆選單 */
+/** 行事曆選單——這次改版：比照待辦選單同一套「紀錄／查詢／功能選單」3顆
+ *  按鈕；原本「本週行程／本月行程／全部行程」3顆查詢類按鈕搬進下面的
+ *  eventQueryMenuBubble子選單，功能完全沒拿掉，只是換個地方按。 */
 function eventMenuBubble(ctx) {
   const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
   const today = nowTaipeiParts();
@@ -1571,16 +1652,50 @@ function eventMenuBubble(ctx) {
     body: {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
       contents: [
-        row('todo_add', '新增行程', { type: 'postback', label: '新增行程', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: `${todayStr} ` }),
-        row('evt_week', '本週行程', msgTextAction('本週行程', '本週行程')),
-        row('evt_month', '本月行程', msgTextAction('本月行程', '本月行程')),
-        row('todo_query', '全部行程', msgTextAction('查詢行事曆', '查詢行事曆')),
+        row('todo_add', '紀錄', { type: 'postback', label: '紀錄', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: `${todayStr} ` }),
+        row('todo_query', '查詢', msgTextAction('查詢', '行事曆查詢選單')),
+        row('evt_menu', '功能選單', msgTextAction('功能選單', '時光筆記')),
       ],
     },
   };
 }
 
-/** 記事選單 */
+/** 這次新增：行事曆「查詢」子選單——全部／今日／明日／本週清單／本月清單
+ *  （沿用原本就有、沒有被拿掉的「本週行程／本月行程」清單式查詢，跟週報/
+ *  月報等統計式查詢分開標示，避免混淆）／週報／月報／季報／年報／指定
+ *  日期／AI洞察／返回。 */
+function eventQueryMenuBubble(ctx) {
+  const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
+  return {
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', paddingAll: '12px',
+      contents: [
+        { type: 'image', url: iconUrl(ctx, 'todo_query'), size: '22px', flex: 0, aspectMode: 'fit' },
+        { type: 'text', text: '行事曆查詢', weight: 'bold', size: 'lg', color: BRAND_TEXT },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
+      contents: [
+        row('todo_query', '全部', msgTextAction('全部行程', '查詢行事曆')),
+        row('todo_due', '今日', msgTextAction('今日行程', '今日行程')),
+        row('todo_due', '明日', msgTextAction('明日行程', '明日行程')),
+        row('evt_week', '本週清單', msgTextAction('本週行程', '本週行程')),
+        row('evt_month', '本月清單', msgTextAction('本月行程', '本月行程')),
+        row('todo_query', '週報', msgTextAction('行事曆週報', '行事曆週報')),
+        row('todo_query', '月報', msgTextAction('行事曆月報', '行事曆月報')),
+        row('todo_query', '季報', msgTextAction('行事曆季報', '行事曆季報')),
+        row('todo_query', '年報', msgTextAction('行事曆年報', '行事曆年報')),
+        row('todo_priority', '指定日期', { type: 'postback', label: '指定日期', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '查詢行事曆 ' }),
+        row('todo_priority', '🤖 AI洞察', msgTextAction('AI洞察', 'AI洞察')),
+        row('evt_menu', '返回', msgTextAction('返回', '行事曆選單')),
+      ],
+    },
+  };
+}
+
+/** 記事選單——這次改版：比照待辦選單同一套「紀錄／查詢／功能選單」3顆按鈕。 */
 function noteMenuBubble(ctx) {
   const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
   return {
@@ -1595,14 +1710,46 @@ function noteMenuBubble(ctx) {
     body: {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
       contents: [
-        row('todo_add', '新增記事', { type: 'postback', label: '新增記事', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '記事 ' }),
-        row('todo_query', '查詢記事', msgTextAction('查詢記事', '查詢記事')),
+        row('todo_add', '紀錄', { type: 'postback', label: '紀錄', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '記事 ' }),
+        row('todo_query', '查詢', msgTextAction('查詢', '記事查詢選單')),
+        row('note_menu', '功能選單', msgTextAction('功能選單', '時光筆記')),
       ],
     },
   };
 }
 
-/** 倒數日選單 */
+/** 這次新增：記事「查詢」子選單——誠實的限制：記事沒有「明日記事」這個
+ *  指令（記事只有建立時間，沒有明確的「目標日期」概念），所以這裡不比照
+ *  其他3個模組放「明日」，不去發明一個不存在的指令。 */
+function noteQueryMenuBubble(ctx) {
+  const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
+  return {
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', paddingAll: '12px',
+      contents: [
+        { type: 'image', url: iconUrl(ctx, 'todo_query'), size: '22px', flex: 0, aspectMode: 'fit' },
+        { type: 'text', text: '記事查詢', weight: 'bold', size: 'lg', color: BRAND_TEXT },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
+      contents: [
+        row('todo_query', '全部', msgTextAction('全部記事', '查詢記事')),
+        row('todo_due', '今日', msgTextAction('今日記事', '今日記事')),
+        row('todo_query', '週報', msgTextAction('記事週報', '記事週報')),
+        row('todo_query', '月報', msgTextAction('記事月報', '記事月報')),
+        row('todo_query', '季報', msgTextAction('記事季報', '記事季報')),
+        row('todo_query', '年報', msgTextAction('記事年報', '記事年報')),
+        row('todo_priority', '指定日期', { type: 'postback', label: '指定日期', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '查詢記事 ' }),
+        row('todo_priority', '🤖 AI洞察', msgTextAction('AI洞察', 'AI洞察')),
+        row('note_menu', '返回', msgTextAction('返回', '記事選單')),
+      ],
+    },
+  };
+}
+
+/** 倒數日選單——這次改版：比照待辦選單同一套「紀錄／查詢／功能選單」3顆按鈕。 */
 function countdownMenuBubble(ctx) {
   const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
   return {
@@ -1617,8 +1764,39 @@ function countdownMenuBubble(ctx) {
     body: {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
       contents: [
-        row('todo_add', '新增倒數日', { type: 'postback', label: '新增倒數日', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '倒數日 ' }),
-        row('todo_query', '查詢倒數日', msgTextAction('查詢倒數日', '查詢倒數日')),
+        row('todo_add', '紀錄', { type: 'postback', label: '紀錄', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '倒數日 ' }),
+        row('todo_query', '查詢', msgTextAction('查詢', '倒數日查詢選單')),
+        row('cd_menu', '功能選單', msgTextAction('功能選單', '時光筆記')),
+      ],
+    },
+  };
+}
+
+/** 這次新增：倒數日「查詢」子選單。 */
+function countdownQueryMenuBubble(ctx) {
+  const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
+  return {
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', paddingAll: '12px',
+      contents: [
+        { type: 'image', url: iconUrl(ctx, 'todo_query'), size: '22px', flex: 0, aspectMode: 'fit' },
+        { type: 'text', text: '倒數日查詢', weight: 'bold', size: 'lg', color: BRAND_TEXT },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
+      contents: [
+        row('todo_query', '全部', msgTextAction('全部倒數日', '查詢倒數日')),
+        row('todo_due', '今日', msgTextAction('今日倒數日', '今日倒數日')),
+        row('todo_due', '明日', msgTextAction('明日倒數日', '明日倒數日')),
+        row('todo_query', '週報', msgTextAction('倒數日週報', '倒數日週報')),
+        row('todo_query', '月報', msgTextAction('倒數日月報', '倒數日月報')),
+        row('todo_query', '季報', msgTextAction('倒數日季報', '倒數日季報')),
+        row('todo_query', '年報', msgTextAction('倒數日年報', '倒數日年報')),
+        row('todo_priority', '指定日期', { type: 'postback', label: '指定日期', data: JSON.stringify({ a: 'noop' }), inputOption: 'openKeyboard', fillInText: '查詢倒數日 ' }),
+        row('todo_priority', '🤖 AI洞察', msgTextAction('AI洞察', 'AI洞察')),
+        row('cd_menu', '返回', msgTextAction('返回', '倒數日選單')),
       ],
     },
   };
@@ -1697,6 +1875,53 @@ function timingSafeEqual(a, b) {
 }
 
 // ---------------------------------------------------------------
+// 這次新增：「時光筆記」5模組主選單——原本只有 SDA 那邊的 LINE webhook
+// 路徑會攔截「時光筆記」這句話直接回卡片（calnote自己完全不認得這句話）。
+// 網頁版「時光筆記」走的是 /api/calnote 橋接，不會被SDA攔截、是直接打進
+// calnote，所以子選單裡「功能選單」這顆按鈕（送出「時光筆記」文字）如果
+// calnote自己不認得，網頁版會顯示「我沒有看懂這個指令格式」。在這裡補上
+// 同樣內容的選單，LINE那邊因為SDA會先攔截、實際上不會真的打到這裡，兩邊
+// 都正確；圖示沿用各模組選單本來就有的 todo_menu/evt_menu/note_menu/
+// cd_menu/dc_menu，不用新增圖檔。
+// ---------------------------------------------------------------
+const RE_TIMENOTE_MENU = /^時光筆記$/;
+function timeNoteMainMenuBubble(ctx) {
+  const row = (slug, text, action) => iconButtonBox(ctx, { slug, text, action });
+  return {
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', paddingAll: '12px',
+      contents: [
+        { type: 'text', text: '⏰ 時光筆記', weight: 'bold', size: 'lg', color: BRAND_TEXT },
+      ],
+    },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
+      contents: [
+        row('todo_menu', '待辦選單', msgTextAction('待辦選單', '待辦選單')),
+        row('evt_menu', '行事曆選單', msgTextAction('行事曆選單', '行事曆選單')),
+        row('note_menu', '記事選單', msgTextAction('記事選單', '記事選單')),
+        row('cd_menu', '倒數日選單', msgTextAction('倒數日選單', '倒數日選單')),
+        row('dc_menu', '日期計算選單', msgTextAction('日期計算選單', '日期計算選單')),
+      ],
+    },
+  };
+}
+
+// ---------------------------------------------------------------
+// 這次新增：AI洞察——目前先佔位。真正要交叉分析待辦/行事曆/記事/倒數日
+// 資料，需要呼叫 Claude API，這需要使用者自己申請並在 Cloudflare 設定好
+// ANTHROPIC_API_KEY 這個環境變數才能啟用（帳號申請、金鑰、信用卡這些
+// 都只能使用者自己做，無法代勞）。先把指令跟選單按鈕都接好、測過，回
+// 清楚的「籌備中」訊息；等金鑰設定好之後，只需要把這個函式內部換成真正
+// 呼叫API分析，不用再動選單或其他任何程式碼。 */
+const RE_AI_INSIGHT = /^AI洞察$/;
+function handleAiInsightCommand(text, ctx) {
+  if (!RE_AI_INSIGHT.test(text)) return null;
+  return textReply('🤖 AI洞察功能還在準備中：需要先設定好 Claude API 金鑰才能啟用真正的分析，準備好之後會再通知你！');
+}
+
+// ---------------------------------------------------------------
 // 單一事件處理（text message / postback）—— 供 webhook 入口與測試共用
 // ---------------------------------------------------------------
 
@@ -1712,7 +1937,9 @@ async function handleSingleEvent(event, env, origin) {
     const cmdText = extractCommandText(raw, event, source, env);
     if (cmdText == null) return null; // 群組中未被 @機器人 → 保持靜默
 
-    let reply = await handleEventCommand(cmdText, ctx);
+    let reply = RE_TIMENOTE_MENU.test(cmdText) ? flexMessage('時光筆記選單', timeNoteMainMenuBubble(ctx)) : null; // 這次新增
+    if (!reply) reply = handleAiInsightCommand(cmdText, ctx); // 這次新增（佔位版）
+    if (!reply) reply = await handleEventCommand(cmdText, ctx);
     if (!reply) reply = await handleNoteCommand(cmdText, ctx);
     if (!reply) reply = await handleTodoCommand(cmdText, ctx);
     if (!reply) reply = await handleCountdownCommand(cmdText, ctx);
@@ -1837,4 +2064,6 @@ export const __TEST__ = {
   parseIsoTaipeiMs, msInRange,
   eventDigest, todoDigest, noteDigest, countdownDigest,
   queryNotesByRange, queryCountdownsByTargetRange, effectiveCountdownTargetMs,
+  // 這次再新增：年報（4模組共用的「今年」時間範圍工具，沿用既有的 digest 函式）
+  thisYearRangeMs,
 };
