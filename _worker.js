@@ -113,6 +113,61 @@ function monthRangeMs(y, m) {
   return { startMs, endMs };
 }
 
+// -----------------------------------------------------------------------
+// 新增查詢維度（今日／明日／指定日期／週報／月報／季報）共用的時間範圍工具
+// ----------------------------------------------------------------------
+// 這次新增的「今日／明日／指定日期／週報／月報／季報」，待辦／行事曆／記事／
+// 倒數日 4 個模組都要用到同一套「算出某個時間範圍的起訖毫秒」邏輯，所以集中
+// 寫在這裡，4 個模組各自的指令處理只需要呼叫，不必各自重算一次。
+// 鐵律：跟檔案開頭所有時間函式一樣，一律以 Asia/Taipei（GMT+8）為準。
+
+/** 今天在台灣時間下的起訖毫秒時間戳 */
+function todayRangeMs() {
+  const p = nowTaipeiParts();
+  const startMs = taipeiPartsToMs(p.y, p.m, p.d, 0, 0);
+  return { startMs, endMs: startMs + 86400000 - 1 };
+}
+
+/** 明天在台灣時間下的起訖毫秒時間戳 */
+function tomorrowRangeMs() {
+  const t = todayRangeMs();
+  return { startMs: t.startMs + 86400000, endMs: t.endMs + 86400000 };
+}
+
+/** 指定單一日期（年/月/日）在台灣時間下的起訖毫秒時間戳 */
+function dayRangeMs(y, m, d) {
+  const startMs = taipeiPartsToMs(y, m, d, 0, 0);
+  return { startMs, endMs: startMs + 86400000 - 1 };
+}
+
+/** 本季（1-3／4-6／7-9／10-12月，日曆季）在台灣時間下的起訖毫秒時間戳 */
+function thisQuarterRangeMs() {
+  const p = nowTaipeiParts();
+  return quarterRangeMs(p.y, Math.ceil(p.m / 3));
+}
+
+function quarterRangeMs(y, q) {
+  const startM = (q - 1) * 3 + 1; // 1, 4, 7, 10
+  const start = monthRangeMs(y, startM);
+  const end = monthRangeMs(y, startM + 2); // 季內最後一個月，startM+2 最大是12，不會跨年
+  return { startMs: start.startMs, endMs: end.endMs };
+}
+
+/** 把 nowIsoTaipei() 固定格式（"YYYY-MM-DD HH:MM:SS+08:00"）的字串轉回毫秒時間戳。
+ *  自己手動解析、不靠 Date 字串解析（不同引擎對非標準格式解讀不一致，這也是
+ *  本檔案一開始所有時間函式都手刻、不直接用 new Date(...) 的同一個理由）。
+ *  用在「週報/月報/季報」要比對 createdAt／completedAt 是否落在某個期間時。 */
+function parseIsoTaipeiMs(s) {
+  const m = typeof s === 'string' && s.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\+08:00$/);
+  if (!m) return null;
+  const [, y, mo, d, hh, mi] = m;
+  return taipeiPartsToMs(+y, +mo, +d, +hh, +mi);
+}
+
+function msInRange(ms, range) {
+  return ms != null && ms >= range.startMs && ms <= range.endMs;
+}
+
 // ---------------------------------------------------------------
 // KV 輔助：流水號（不補號）＋ 記錄存取
 // ---------------------------------------------------------------
@@ -250,6 +305,18 @@ const RE_EVT_QUERY_WEEK = /^本週行程$/;
 const RE_EVT_QUERY_MONTH_BARE = /^本月行程$/;
 const RE_EVT_QUERY_MONTH = /^查詢行事曆\s+(\d{4})-(\d{2})$/;
 
+/** 這次新增：今日／明日／指定日期／週報／月報／季報（AI先暫緩，這裡先做
+ *  純數字統計版，不含AI生成文字）。跟上面「查詢行事曆 YYYY-MM」同一個
+ *  「查詢行事曆+空格+參數」句型，多一組「日」；今日/明日比照「本週行程」
+ *  「本月行程」的 bare 片語習慣；週報/月報/季報比照「XX選單」的
+ *  「模組名稱在前」構詞，跟「本週行程」分開，一個是列清單、一個是算統計。 */
+const RE_EVT_QUERY_TODAY = /^今日行程$/;
+const RE_EVT_QUERY_TOMORROW = /^明日行程$/;
+const RE_EVT_QUERY_DAY = /^查詢行事曆\s+(\d{4})-(\d{2})-(\d{2})$/;
+const RE_EVT_DIGEST_WEEK = /^行事曆週報$/;
+const RE_EVT_DIGEST_MONTH = /^行事曆月報$/;
+const RE_EVT_DIGEST_QUARTER = /^行事曆季報$/;
+
 /** 行事曆選單（核心進入點卡片，跟待辦選單同一套做法） */
 const RE_EVT_MENU = /^行事曆選單$/;
 
@@ -336,6 +403,25 @@ async function handleEventCommand(text, ctx) {
     const r = monthRangeMs(+y, +mo);
     return queryEvents(ctx, { ...r, label: `${y}-${mo} 行程` });
   }
+  if (RE_EVT_QUERY_TODAY.test(text)) {
+    return queryEvents(ctx, { ...todayRangeMs(), label: '今日行程' });
+  }
+  if (RE_EVT_QUERY_TOMORROW.test(text)) {
+    return queryEvents(ctx, { ...tomorrowRangeMs(), label: '明日行程' });
+  }
+  if ((m = text.match(RE_EVT_QUERY_DAY))) {
+    const [, y, mo, d] = m;
+    return queryEvents(ctx, { ...dayRangeMs(+y, +mo, +d), label: `${y}-${mo}-${d} 行程` });
+  }
+  if (RE_EVT_DIGEST_WEEK.test(text)) {
+    return eventDigest(ctx, thisWeekRangeMs(), '行事曆週報');
+  }
+  if (RE_EVT_DIGEST_MONTH.test(text)) {
+    return eventDigest(ctx, thisMonthRangeMs(), '行事曆月報');
+  }
+  if (RE_EVT_DIGEST_QUARTER.test(text)) {
+    return eventDigest(ctx, thisQuarterRangeMs(), '行事曆季報');
+  }
 
   if ((m = text.match(RE_EVT_SET_STATUS))) {
     return updateEventField(ctx, +m[1], (ev) => { ev.status = m[2].trim(); }, '已更新狀態');
@@ -393,6 +479,20 @@ async function queryEvents(ctx, range) {
   return textReply(`${range.label}（共 ${rows.length} 筆）：\n\n${body}`);
 }
 
+/** 週報／月報／季報：純數字統計版（AI先暫緩，不含AI生成文字，只先誠實列數字）。
+ *  跟 queryEvents 不一樣的地方：這裡不列出每一筆行程，只算「這段期間內
+ *  共幾場、已完成幾場、標記緊急幾場」這幾個聚合數字。 */
+async function eventDigest(ctx, range, label) {
+  const { kv, scope } = ctx;
+  const rows = await listEventsWithIds(kv, scope);
+  const inRange = rows.filter((r) => msInRange(r.ev.startAtMs, range));
+  const done = inRange.filter((r) => r.ev.status === '已完成').length;
+  const urgent = inRange.filter((r) => r.ev.urgent).length;
+  return textReply(
+    `${label}：\n共 ${inRange.length} 場行程\n已完成 ${done} 場\n標記緊急 ${urgent} 場`
+  );
+}
+
 async function listEventsWithIds(kv, scope) {
   const prefix = `evt:${scope}:`;
   const out = [];
@@ -435,6 +535,16 @@ const RE_NOTE_EXPORT_PLAIN = /^輸出純文字記事\s*#(\d+)$/;
  *  排序規則跟其他模組查詢一致：置頂的在前，其餘依最後更新時間新到舊。 */
 const RE_NOTE_QUERY_ALL = /^查詢記事$/;
 const RE_NOTE_MENU = /^記事選單$/;
+
+/** 這次新增：今日／指定日期／週報／月報／季報（AI先暫緩，純數字統計版）。
+ *  記事沒有「明日」——記事只有 createdAt（建立時間），不像行事曆/待辦/倒數日
+ *  有「未來某個日期」的欄位，不會有「明天才建立」這種事，所以不做這一個，
+ *  避免做一個永遠查不到東西、語意也說不通的指令。 */
+const RE_NOTE_QUERY_TODAY = /^今日記事$/;
+const RE_NOTE_QUERY_DAY = /^查詢記事\s+(\d{4})-(\d{2})-(\d{2})$/;
+const RE_NOTE_DIGEST_WEEK = /^記事週報$/;
+const RE_NOTE_DIGEST_MONTH = /^記事月報$/;
+const RE_NOTE_DIGEST_QUARTER = /^記事季報$/;
 
 function newNoteSkeleton(content) {
   const ts = nowIsoTaipei();
@@ -479,6 +589,31 @@ async function queryNotes(ctx) {
   return textReply(`記事（共 ${rows.length} 筆）${more}：\n\n${body}`);
 }
 
+/** 今日／指定日期：依 createdAt（建立時間）落在範圍內篩選，排序跟 queryNotes 一致 */
+async function queryNotesByRange(ctx, range, label) {
+  const { kv, scope } = ctx;
+  const rows = await listNotesWithIds(kv, scope);
+  const inRange = rows.filter((r) => msInRange(parseIsoTaipeiMs(r.note.createdAt), range));
+  if (inRange.length === 0) return textReply(`${label}：目前沒有符合的記事`);
+  inRange.sort((a, b) => {
+    if (a.note.pinned !== b.note.pinned) return a.note.pinned ? -1 : 1;
+    return (b.note.updatedAt || '').localeCompare(a.note.updatedAt || '');
+  });
+  const body = inRange.map((r) => fmtNoteLine(r.id, r.note)).join('\n\n');
+  return textReply(`${label}（共 ${inRange.length} 筆）：\n\n${body}`);
+}
+
+/** 週報／月報／季報：純數字統計版（AI先暫緩，不含AI生成文字） */
+async function noteDigest(ctx, range, label) {
+  const { kv, scope } = ctx;
+  const rows = await listNotesWithIds(kv, scope);
+  const inRange = rows.filter((r) => msInRange(parseIsoTaipeiMs(r.note.createdAt), range));
+  const pinnedNow = rows.filter((r) => r.note.pinned).length;
+  return textReply(
+    `${label}：\n本期新增 ${inRange.length} 筆記事\n目前置頂 ${pinnedNow} 筆（現況，不分期間）`
+  );
+}
+
 async function handleNoteCommand(text, ctx) {
   const { kv, scope } = ctx;
   let m;
@@ -488,6 +623,22 @@ async function handleNoteCommand(text, ctx) {
   }
   if (RE_NOTE_QUERY_ALL.test(text)) {
     return queryNotes(ctx);
+  }
+  if (RE_NOTE_QUERY_TODAY.test(text)) {
+    return queryNotesByRange(ctx, todayRangeMs(), '今日記事');
+  }
+  if ((m = text.match(RE_NOTE_QUERY_DAY))) {
+    const [, y, mo, d] = m;
+    return queryNotesByRange(ctx, dayRangeMs(+y, +mo, +d), `${y}-${mo}-${d} 記事`);
+  }
+  if (RE_NOTE_DIGEST_WEEK.test(text)) {
+    return noteDigest(ctx, thisWeekRangeMs(), '記事週報');
+  }
+  if (RE_NOTE_DIGEST_MONTH.test(text)) {
+    return noteDigest(ctx, thisMonthRangeMs(), '記事月報');
+  }
+  if (RE_NOTE_DIGEST_QUARTER.test(text)) {
+    return noteDigest(ctx, thisQuarterRangeMs(), '記事季報');
   }
 
   // 先比對更specific 的指令，避免被寬鬆的「記事 ...」規則誤吃
@@ -580,6 +731,19 @@ const RE_TODO_QUERY_OVERDUE = /^已逾期待辦$/;
 const RE_TODO_QUERY_PRIORITY = /^(高|中|低)優先待辦$/;
 const RE_TODO_QUERY_ASSIGNEE = /^(.+)的待辦$/;
 
+/** 這次新增：今日／明日／指定日期／週報／月報／季報（AI先暫緩，純數字統計版）。
+ *  「今日待辦」是「今天該做的待辦」的新別名，查詢邏輯完全相同，只是換一個
+ *  跟行事曆「今日行程」、倒數日「今日倒數日」一致的講法，方便記；原本
+ *  「今天該做的待辦」繼續保留，不拿掉。這3個新的 QUERY regex 都是數字
+ *  開頭或固定詞開頭，不會跟上面「(.+)的待辦」衝突，但比照既有慣例（見下面
+ *  dispatch 裡的註解）仍然排在 ASSIGNEE 判斷之前比對，不留模糊地帶。 */
+const RE_TODO_QUERY_TODAY_ALIAS = /^今日待辦$/;
+const RE_TODO_QUERY_TOMORROW = /^明日待辦$/;
+const RE_TODO_QUERY_DAY = /^查詢待辦\s+(\d{4})-(\d{2})-(\d{2})$/;
+const RE_TODO_DIGEST_WEEK = /^待辦週報$/;
+const RE_TODO_DIGEST_MONTH = /^待辦月報$/;
+const RE_TODO_DIGEST_QUARTER = /^待辦季報$/;
+
 const RE_TODO_COMPLETE = /^完成待辦\s*#(\d+)$/;
 const RE_TODO_SET_STATUS = /^待辦\s*#(\d+)\s*改[為回]\s*(.+)$/;
 const RE_TODO_SET_DUE = /^修改待辦\s*#(\d+)\s*期限改為\s*(\d{4})-(\d{2})-(\d{2})$/;
@@ -591,6 +755,7 @@ function newTodoSkeleton(title) {
   return {
     title, status: '未開始', priority: '', dueAtMs: null, hasDueTime: false,
     assignee: '', note: '', createdAt: ts, updatedAt: ts,
+    completedAt: null, // 這次新增：只有「完成待辦」真的觸發時才會寫入，供週報/月報/季報統計「本期完成幾筆」用；舊資料沒有這個欄位一律視為 null，不會被誤算進任何一期
   };
 }
 
@@ -618,10 +783,12 @@ async function handleTodoCommand(text, ctx) {
 
   // 先比對更specific 的指令，避免被寬鬆的「待辦 ...」規則誤吃
   if ((m = text.match(RE_TODO_COMPLETE))) {
-    return updateTodoField(ctx, +m[1], (t) => { t.status = '已完成'; }, '已標記完成');
+    return updateTodoField(ctx, +m[1], (t) => { t.status = '已完成'; t.completedAt = nowIsoTaipei(); }, '已標記完成');
   }
   if ((m = text.match(RE_TODO_SET_STATUS))) {
-    return updateTodoField(ctx, +m[1], (t) => { t.status = m[2].trim(); }, '已更新狀態');
+    // 改成別的狀態（含改回「未開始」之類）就不算完成了，completedAt 要跟著清掉，
+    // 不然週報/月報/季報會把「已經改口的舊完成紀錄」誤算進去
+    return updateTodoField(ctx, +m[1], (t) => { t.status = m[2].trim(); if (t.status !== '已完成') t.completedAt = null; }, '已更新狀態');
   }
   if ((m = text.match(RE_TODO_SET_DUE))) {
     const [, idStr, y, mo, d] = m;
@@ -652,6 +819,32 @@ async function handleTodoCommand(text, ctx) {
   if ((m = text.match(RE_TODO_QUERY_PRIORITY))) {
     const pr = m[1];
     return queryTodos(ctx, (t) => t.status !== '已完成' && t.priority === pr, `${pr}優先待辦`);
+  }
+  if (RE_TODO_QUERY_TODAY_ALIAS.test(text)) {
+    // 跟「今天該做的待辦」完全同一條邏輯（含逾期）：這個查詢的用意是「今天該
+    // 動手處理的事」，本來就該把過期還沒做的也一起顯示，不是只看今天到期的
+    const endMs = todayRangeMs().endMs;
+    return queryTodos(ctx, (t) => t.status !== '已完成' && t.dueAtMs != null && t.dueAtMs <= endMs, '今日待辦');
+  }
+  if (RE_TODO_QUERY_TOMORROW.test(text)) {
+    // 跟「今日待辦」刻意不同：這裡只看「剛好明天到期」這一天的範圍，不累加
+    // 今天／逾期的（那些「今日待辦」已經看得到），單純當作「預覽明天」用
+    const r = tomorrowRangeMs();
+    return queryTodos(ctx, (t) => t.status !== '已完成' && t.dueAtMs != null && t.dueAtMs >= r.startMs && t.dueAtMs <= r.endMs, '明日待辦');
+  }
+  if ((m = text.match(RE_TODO_QUERY_DAY))) {
+    const [, y, mo, d] = m;
+    const r = dayRangeMs(+y, +mo, +d);
+    return queryTodos(ctx, (t) => t.status !== '已完成' && t.dueAtMs != null && t.dueAtMs >= r.startMs && t.dueAtMs <= r.endMs, `${y}-${mo}-${d} 該做的待辦`);
+  }
+  if (RE_TODO_DIGEST_WEEK.test(text)) {
+    return todoDigest(ctx, thisWeekRangeMs(), '待辦週報');
+  }
+  if (RE_TODO_DIGEST_MONTH.test(text)) {
+    return todoDigest(ctx, thisMonthRangeMs(), '待辦月報');
+  }
+  if (RE_TODO_DIGEST_QUARTER.test(text)) {
+    return todoDigest(ctx, thisQuarterRangeMs(), '待辦季報');
   }
 
   if ((m = text.match(RE_TODO_CREATE_DATETIME))) {
@@ -726,6 +919,25 @@ async function queryTodos(ctx, filterFn, label) {
   return todoCarouselReply(ctx, rows, label);
 }
 
+/** 週報／月報／季報：純數字統計版（AI先暫緩，不含AI生成文字）。
+ *  「本期新增」「本期完成」依 createdAt／completedAt 落在期間內計算；
+ *  「目前未完成」「目前已逾期」是現況快照，不分期間（逾期是累積出來的，
+ *  不會因為查的是「週報」就只看這週到期的，誠實反映現在真正卡著幾筆）。
+ *  completedAt 是這次新增的欄位，這次之前就已完成的舊資料沒有這個時間戳，
+ *  一律不計入「本期完成」（但完成狀態本身不受影響，不影響「未完成」計數）。 */
+async function todoDigest(ctx, range, label) {
+  const { kv, scope } = ctx;
+  const rows = await listTodosWithIds(kv, scope);
+  const created = rows.filter((r) => msInRange(parseIsoTaipeiMs(r.t.createdAt), range)).length;
+  const completed = rows.filter((r) => msInRange(parseIsoTaipeiMs(r.t.completedAt), range)).length;
+  const nowMs = Date.now();
+  const openNow = rows.filter((r) => r.t.status !== '已完成').length;
+  const overdueNow = rows.filter((r) => r.t.status !== '已完成' && r.t.dueAtMs != null && r.t.dueAtMs < nowMs).length;
+  return textReply(
+    `${label}：\n本期新增 ${created} 筆\n本期完成 ${completed} 筆\n目前未完成 ${openNow} 筆（現況，不分期間）\n目前已逾期 ${overdueNow} 筆（現況，不分期間）`
+  );
+}
+
 async function convertTodoToEvent(ctx, todoId, y, mo, d, hh, mi) {
   const { kv, scope } = ctx;
   const t = await getRecord(kv, 'todo', scope, todoId);
@@ -759,6 +971,19 @@ const RE_CD_SET_REPEAT = /^倒數日\s*#(\d+)\s*設為每年重複$/;
 const RE_CD_SET_TITLE = /^修改倒數日\s*#(\d+)\s*標題改為\s*(.+)$/s;
 const RE_CD_DELETE = /^刪除倒數日\s*#(\d+)$/;
 const RE_CD_LINK = /^將倒數日\s*#(\d+)\s*關聯到(行事曆|記事)\s*#(\d+)$/;
+
+/** 這次新增：今日／明日／指定日期／週報／月報／季報（AI先暫緩，純數字統計版）。
+ *  今日/明日/指定日期這3個是依「目標日期」篩選（而不是建立時間）——
+ *  意思是「今天/明天/那天就是倒數日到期的那天」，這樣才有實際提醒的用處；
+ *  如果設定了「每年重複」，目標日期用今年或明年最近的下一次生效，邏輯
+ *  跟既有的 cdDaysInfo() 一致（見下面 effectiveCountdownTargetMs，刻意
+ *  另外寫一份、不去改 cdDaysInfo 本體，降低這次異動對既有功能的風險）。 */
+const RE_CD_QUERY_TODAY = /^今日倒數日$/;
+const RE_CD_QUERY_TOMORROW = /^明日倒數日$/;
+const RE_CD_QUERY_DAY = /^查詢倒數日\s+(\d{4})-(\d{2})-(\d{2})$/;
+const RE_CD_DIGEST_WEEK = /^倒數日週報$/;
+const RE_CD_DIGEST_MONTH = /^倒數日月報$/;
+const RE_CD_DIGEST_QUARTER = /^倒數日季報$/;
 
 function newCountdownSkeleton(title, y, m, d) {
   const ts = nowIsoTaipei();
@@ -794,6 +1019,49 @@ function fmtCountdownLine(id, cd, todayP) {
   return line;
 }
 
+/** 算出這筆倒數日「真正會顯示的目標日期」毫秒時間戳：沒設定每年重複的話
+ *  就是存的那個日期；設定了每年重複、而且那個日期已經過了，就跳到今年或
+ *  明年最近的下一次——邏輯特意跟 cdDaysInfo() 內部算法保持一致，但另外
+ *  獨立寫一份（不把 cdDaysInfo 改成呼叫共用函式），降低這次異動動到
+ *  既有「查詢倒數日」排序/顯示邏輯的風險。 */
+function effectiveCountdownTargetMs(cd, todayP) {
+  const todayMs = taipeiPartsToMs(todayP.y, todayP.m, todayP.d, 0, 0);
+  let targetMs = safeYmdMs(cd.y, cd.m, cd.d);
+  if (cd.repeatYearly && targetMs < todayMs) {
+    let ny = todayP.y;
+    let candMs = safeYmdMs(ny, cd.m, cd.d);
+    if (candMs < todayMs) { ny += 1; candMs = safeYmdMs(ny, cd.m, cd.d); }
+    targetMs = candMs;
+  }
+  return targetMs;
+}
+
+/** 今日／明日／指定日期：依「目標日期」（而非建立時間）篩選 */
+async function queryCountdownsByTargetRange(ctx, range, label) {
+  const { kv, scope } = ctx;
+  const rows = await listCountdownsWithIds(kv, scope);
+  const todayP = nowTaipeiParts();
+  const inRange = rows.filter((r) => msInRange(effectiveCountdownTargetMs(r.cd, todayP), range));
+  if (inRange.length === 0) return textReply(`${label}：目前沒有符合的倒數日`);
+  inRange.sort((a, b) => effectiveCountdownTargetMs(a.cd, todayP) - effectiveCountdownTargetMs(b.cd, todayP));
+  const body = inRange.map((r) => fmtCountdownLine(r.id, r.cd, todayP)).join('\n\n');
+  return textReply(`${label}（共 ${inRange.length} 筆）：\n\n${body}`);
+}
+
+/** 週報／月報／季報：純數字統計版（AI先暫緩，不含AI生成文字）。
+ *  「本期到期」依目標日期落在期間內計算；「本期新增」依 createdAt；
+ *  「目前共幾筆」是現況快照，不分期間。 */
+async function countdownDigest(ctx, range, label) {
+  const { kv, scope } = ctx;
+  const rows = await listCountdownsWithIds(kv, scope);
+  const todayP = nowTaipeiParts();
+  const dueInRange = rows.filter((r) => msInRange(effectiveCountdownTargetMs(r.cd, todayP), range)).length;
+  const createdInRange = rows.filter((r) => msInRange(parseIsoTaipeiMs(r.cd.createdAt), range)).length;
+  return textReply(
+    `${label}：\n本期到期 ${dueInRange} 筆\n本期新增 ${createdInRange} 筆\n目前共 ${rows.length} 筆（現況，不分期間）`
+  );
+}
+
 async function handleCountdownCommand(text, ctx) {
   const { kv, scope } = ctx;
   let m;
@@ -822,6 +1090,25 @@ async function handleCountdownCommand(text, ctx) {
     rows.sort((a, b) => cdDaysInfo(a.cd, todayP).days - cdDaysInfo(b.cd, todayP).days);
     const body = rows.map((r) => fmtCountdownLine(r.id, r.cd, todayP)).join('\n\n');
     return textReply(`倒數日期（共 ${rows.length} 筆）：\n\n${body}`);
+  }
+  if (RE_CD_QUERY_TODAY.test(text)) {
+    return queryCountdownsByTargetRange(ctx, todayRangeMs(), '今日倒數日');
+  }
+  if (RE_CD_QUERY_TOMORROW.test(text)) {
+    return queryCountdownsByTargetRange(ctx, tomorrowRangeMs(), '明日倒數日');
+  }
+  if ((m = text.match(RE_CD_QUERY_DAY))) {
+    const [, y, mo, d] = m;
+    return queryCountdownsByTargetRange(ctx, dayRangeMs(+y, +mo, +d), `${y}-${mo}-${d} 倒數日`);
+  }
+  if (RE_CD_DIGEST_WEEK.test(text)) {
+    return countdownDigest(ctx, thisWeekRangeMs(), '倒數日週報');
+  }
+  if (RE_CD_DIGEST_MONTH.test(text)) {
+    return countdownDigest(ctx, thisMonthRangeMs(), '倒數日月報');
+  }
+  if (RE_CD_DIGEST_QUARTER.test(text)) {
+    return countdownDigest(ctx, thisQuarterRangeMs(), '倒數日季報');
   }
   if ((m = text.match(RE_CD_CREATE))) {
     const [, , y, mo, d, title] = m;
@@ -1047,7 +1334,7 @@ async function handlePostback(dataStr, ctx) {
   // data.t（不是在回應某張已經發出的確認卡片），而是使用者直接在
   // 清單／卡片上點按鈕觸發的第一步動作。
   if (data.a === 'todo_complete') {
-    return updateTodoField(ctx, data.id, (t) => { t.status = '已完成'; }, '已標記完成');
+    return updateTodoField(ctx, data.id, (t) => { t.status = '已完成'; t.completedAt = nowIsoTaipei(); }, '已標記完成');
   }
   if (data.a === 'todo_delreq') {
     // 刪除一律要先出二次確認卡片（鐵律），所以卡片上的刪除按鈕直接
@@ -1545,4 +1832,9 @@ export const __TEST__ = {
   // 行事曆／記事本／倒數日期／日期計算機 這4個新增的選單卡片，以及補上的「查詢記事」
   eventMenuBubble, noteMenuBubble, countdownMenuBubble, datecalcMenuBubble,
   queryNotes, listNotesWithIds,
+  // 這次新增：今日/明日/指定日期/週報/月報/季報（4模組共用的時間範圍工具＋各模組統計函式）
+  todayRangeMs, tomorrowRangeMs, dayRangeMs, thisQuarterRangeMs, quarterRangeMs,
+  parseIsoTaipeiMs, msInRange,
+  eventDigest, todoDigest, noteDigest, countdownDigest,
+  queryNotesByRange, queryCountdownsByTargetRange, effectiveCountdownTargetMs,
 };
