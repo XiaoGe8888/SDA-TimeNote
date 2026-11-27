@@ -153,15 +153,6 @@ function quarterRangeMs(y, q) {
   return { startMs: start.startMs, endMs: end.endMs };
 }
 
-/** 這次新增：今年（1-12月，日曆年）在台灣時間下的起訖毫秒時間戳。
- *  直接重用已經測過的 monthRangeMs，不另外手刻日期運算，降低時區誤差風險。 */
-function thisYearRangeMs() {
-  const p = nowTaipeiParts();
-  const start = monthRangeMs(p.y, 1);
-  const end = monthRangeMs(p.y, 12);
-  return { startMs: start.startMs, endMs: end.endMs };
-}
-
 /** 把 nowIsoTaipei() 固定格式（"YYYY-MM-DD HH:MM:SS+08:00"）的字串轉回毫秒時間戳。
  *  自己手動解析、不靠 Date 字串解析（不同引擎對非標準格式解讀不一致，這也是
  *  本檔案一開始所有時間函式都手刻、不直接用 new Date(...) 的同一個理由）。
@@ -325,7 +316,6 @@ const RE_EVT_QUERY_DAY = /^查詢行事曆\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_EVT_DIGEST_WEEK = /^行事曆週報$/;
 const RE_EVT_DIGEST_MONTH = /^行事曆月報$/;
 const RE_EVT_DIGEST_QUARTER = /^行事曆季報$/;
-const RE_EVT_DIGEST_YEAR = /^行事曆年報$/; // 這次新增
 
 /** 行事曆選單（核心進入點卡片，跟待辦選單同一套做法） */
 const RE_EVT_MENU = /^行事曆選單$/;
@@ -431,9 +421,6 @@ async function handleEventCommand(text, ctx) {
   }
   if (RE_EVT_DIGEST_QUARTER.test(text)) {
     return eventDigest(ctx, thisQuarterRangeMs(), '行事曆季報');
-  }
-  if (RE_EVT_DIGEST_YEAR.test(text)) {
-    return eventDigest(ctx, thisYearRangeMs(), '行事曆年報');
   }
 
   if ((m = text.match(RE_EVT_SET_STATUS))) {
@@ -558,7 +545,6 @@ const RE_NOTE_QUERY_DAY = /^查詢記事\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_NOTE_DIGEST_WEEK = /^記事週報$/;
 const RE_NOTE_DIGEST_MONTH = /^記事月報$/;
 const RE_NOTE_DIGEST_QUARTER = /^記事季報$/;
-const RE_NOTE_DIGEST_YEAR = /^記事年報$/; // 這次新增
 
 function newNoteSkeleton(content) {
   const ts = nowIsoTaipei();
@@ -653,9 +639,6 @@ async function handleNoteCommand(text, ctx) {
   }
   if (RE_NOTE_DIGEST_QUARTER.test(text)) {
     return noteDigest(ctx, thisQuarterRangeMs(), '記事季報');
-  }
-  if (RE_NOTE_DIGEST_YEAR.test(text)) {
-    return noteDigest(ctx, thisYearRangeMs(), '記事年報');
   }
 
   // 先比對更specific 的指令，避免被寬鬆的「記事 ...」規則誤吃
@@ -760,7 +743,6 @@ const RE_TODO_QUERY_DAY = /^查詢待辦\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_TODO_DIGEST_WEEK = /^待辦週報$/;
 const RE_TODO_DIGEST_MONTH = /^待辦月報$/;
 const RE_TODO_DIGEST_QUARTER = /^待辦季報$/;
-const RE_TODO_DIGEST_YEAR = /^待辦年報$/; // 這次新增
 
 const RE_TODO_COMPLETE = /^完成待辦\s*#(\d+)$/;
 const RE_TODO_SET_STATUS = /^待辦\s*#(\d+)\s*改[為回]\s*(.+)$/;
@@ -863,9 +845,6 @@ async function handleTodoCommand(text, ctx) {
   }
   if (RE_TODO_DIGEST_QUARTER.test(text)) {
     return todoDigest(ctx, thisQuarterRangeMs(), '待辦季報');
-  }
-  if (RE_TODO_DIGEST_YEAR.test(text)) {
-    return todoDigest(ctx, thisYearRangeMs(), '待辦年報');
   }
 
   if ((m = text.match(RE_TODO_CREATE_DATETIME))) {
@@ -1005,7 +984,6 @@ const RE_CD_QUERY_DAY = /^查詢倒數日\s+(\d{4})-(\d{2})-(\d{2})$/;
 const RE_CD_DIGEST_WEEK = /^倒數日週報$/;
 const RE_CD_DIGEST_MONTH = /^倒數日月報$/;
 const RE_CD_DIGEST_QUARTER = /^倒數日季報$/;
-const RE_CD_DIGEST_YEAR = /^倒數日年報$/; // 這次新增
 
 function newCountdownSkeleton(title, y, m, d) {
   const ts = nowIsoTaipei();
@@ -1131,9 +1109,6 @@ async function handleCountdownCommand(text, ctx) {
   }
   if (RE_CD_DIGEST_QUARTER.test(text)) {
     return countdownDigest(ctx, thisQuarterRangeMs(), '倒數日季報');
-  }
-  if (RE_CD_DIGEST_YEAR.test(text)) {
-    return countdownDigest(ctx, thisYearRangeMs(), '倒數日年報');
   }
   if ((m = text.match(RE_CD_CREATE))) {
     const [, , y, mo, d, title] = m;
@@ -1862,6 +1837,4 @@ export const __TEST__ = {
   parseIsoTaipeiMs, msInRange,
   eventDigest, todoDigest, noteDigest, countdownDigest,
   queryNotesByRange, queryCountdownsByTargetRange, effectiveCountdownTargetMs,
-  // 這次再新增：年報（4模組共用的「今年」時間範圍工具，沿用既有的 digest 函式）
-  thisYearRangeMs,
 };
